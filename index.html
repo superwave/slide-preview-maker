@@ -284,10 +284,22 @@ function render() {
     const col = i % best.cols, row = Math.floor(i / best.cols);
     const x = startX + col * (cellW + gap), y = startY + row * (cellH + gap);
 
+    // Draw shadow first (before clipping)
+    if (shadow) {
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.3)';
+      ctx.shadowBlur = 15;
+      ctx.shadowOffsetX = 5;
+      ctx.shadowOffsetY = 5;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.roundRect(x, y, cellW, cellH, rad);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Draw image with rounded rect clip
     ctx.save();
-    if (shadow) { ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 12; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; }
-    
-    // Rounded rect clip
     ctx.beginPath();
     ctx.roundRect(x, y, cellW, cellH, rad);
     ctx.clip();
