@@ -96,6 +96,13 @@
             </select>
           </div>
           <div class="control-row">
+            <div class="control-label">排版方式</div>
+            <select id="layoutSelect">
+              <option value="grid">標準網格</option>
+              <option value="staggered">交錯排版</option>
+            </select>
+          </div>
+          <div class="control-row">
             <div class="control-label">背景顏色</div>
             <div class="color-row">
               <input type="color" id="bgColor" value="#ffffff">
@@ -239,6 +246,7 @@ function updateThumbs() {
 
 // Settings
 $('sizeSelect').onchange = e => { [W, H] = e.target.value.split(',').map(Number); canvas.width = W; canvas.height = H; $('sizeLabel').textContent = `${W}×${H}`; render(); };
+$('layoutSelect').onchange = render;
 $('bgColor').oninput = e => { $('bgHex').textContent = e.target.value; render(); };
 $('gapRange').oninput = e => { $('gapVal').textContent = e.target.value + 'px'; render(); };
 $('padRange').oninput = e => { $('padVal').textContent = e.target.value + 'px'; render(); };
@@ -260,68 +268,114 @@ function render() {
 
   const gap = +$('gapRange').value, pad = +$('padRange').value, rad = +$('radiusRange').value;
   const shadow = $('showShadow').checked, num = $('showNum').checked;
+  const layout = $('layoutSelect').value;
   const safeW = W - pad * 2, safeH = H - pad * 2;
   const ratio = images[0].width / images[0].height;
   const n = images.length;
 
-  // Find best grid
-  let best = { cols: 1, rows: n, size: 0 };
-  for (let c = 1; c <= n; c++) {
-    const r = Math.ceil(n / c);
-    const cellW = (safeW - (c - 1) * gap) / c;
-    const cellH = (safeH - (r - 1) * gap) / r;
-    const w = Math.min(cellW, cellH * ratio);
-    if (w > best.size) best = { cols: c, rows: r, size: w };
+  let best, cellW, cellH, totalW, totalH, startX, startY;
+
+  if (layout === 'staggered') {
+    // Staggered layout: offset every other row by half cell width
+    // Need to account for the extra half-cell width needed for offset rows
+    best = { cols: 1, rows: n, size: 0 };
+    for (let c = 2; c <= n; c++) {
+      const r = Math.ceil(n / c);
+      // For staggered, we need extra space for half-cell offset
+      const effectiveW = safeW - (cellW * 0.5); // Reserve space for offset
+      const testCellW = (safeW - (c - 0.5) * gap) / (c + 0.5);
+      const testCellH = (safeH - (r - 1) * gap) / r;
+      const w = Math.min(testCellW, testCellH * ratio);
+      if (w > best.size) best = { cols: c, rows: r, size: w };
+    }
+    // Fallback for single column
+    if (best.size === 0) {
+      best = { cols: 1, rows: n, size: Math.min(safeW, safeH / n * ratio) };
+    }
+
+    cellW = best.size;
+    cellH = cellW / ratio;
+    const offsetX = (cellW + gap) / 2; // Half cell offset for odd rows
+    totalW = best.cols * cellW + (best.cols - 1) * gap + offsetX;
+    totalH = best.rows * cellH + (best.rows - 1) * gap;
+    startX = pad + (safeW - totalW) / 2;
+    startY = pad + (safeH - totalH) / 2;
+
+    images.forEach((img, i) => {
+      const col = i % best.cols, row = Math.floor(i / best.cols);
+      const rowOffset = (row % 2 === 1) ? offsetX : 0; // Offset odd rows
+      const x = startX + col * (cellW + gap) + rowOffset;
+      const y = startY + row * (cellH + gap);
+
+      drawSlide(ctx, img, x, y, cellW, cellH, rad, shadow, num, i);
+    });
+  } else {
+    // Standard grid layout
+    best = { cols: 1, rows: n, size: 0 };
+    for (let c = 1; c <= n; c++) {
+      const r = Math.ceil(n / c);
+      const testCellW = (safeW - (c - 1) * gap) / c;
+      const testCellH = (safeH - (r - 1) * gap) / r;
+      const w = Math.min(testCellW, testCellH * ratio);
+      if (w > best.size) best = { cols: c, rows: r, size: w };
+    }
+
+    cellW = best.size;
+    cellH = cellW / ratio;
+    totalW = best.cols * cellW + (best.cols - 1) * gap;
+    totalH = best.rows * cellH + (best.rows - 1) * gap;
+    startX = pad + (safeW - totalW) / 2;
+    startY = pad + (safeH - totalH) / 2;
+
+    images.forEach((img, i) => {
+      const col = i % best.cols, row = Math.floor(i / best.cols);
+      const x = startX + col * (cellW + gap);
+      const y = startY + row * (cellH + gap);
+
+      drawSlide(ctx, img, x, y, cellW, cellH, rad, shadow, num, i);
+    });
   }
 
-  const cellW = best.size, cellH = cellW / ratio;
-  const totalW = best.cols * cellW + (best.cols - 1) * gap;
-  const totalH = best.rows * cellH + (best.rows - 1) * gap;
-  const startX = pad + (safeW - totalW) / 2;
-  const startY = pad + (safeH - totalH) / 2;
+  $('previewLabel').textContent = `預覽 (${W}×${H}) - ${n} 張投影片`;
+}
 
-  images.forEach((img, i) => {
-    const col = i % best.cols, row = Math.floor(i / best.cols);
-    const x = startX + col * (cellW + gap), y = startY + row * (cellH + gap);
-
-    // Draw shadow first (before clipping)
-    if (shadow) {
-      ctx.save();
-      ctx.shadowColor = 'rgba(0,0,0,0.3)';
-      ctx.shadowBlur = 15;
-      ctx.shadowOffsetX = 5;
-      ctx.shadowOffsetY = 5;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.roundRect(x, y, cellW, cellH, rad);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Draw image with rounded rect clip
+// Draw single slide with shadow, image, and number badge
+function drawSlide(ctx, img, x, y, cellW, cellH, rad, shadow, num, index) {
+  // Draw shadow first (before clipping)
+  if (shadow) {
     ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetX = 5;
+    ctx.shadowOffsetY = 5;
+    ctx.fillStyle = '#fff';
     ctx.beginPath();
     ctx.roundRect(x, y, cellW, cellH, rad);
-    ctx.clip();
-    ctx.drawImage(img, x, y, cellW, cellH);
+    ctx.fill();
     ctx.restore();
+  }
 
-    // Number badge
-    if (num) {
-      const s = Math.max(20, cellH * 0.12);
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.beginPath();
-      ctx.roundRect(x + 4, y + 4, s, s, 4);
-      ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.font = `bold ${s * 0.65}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(i + 1, x + 4 + s/2, y + 4 + s/2);
-    }
-  });
-  
-  $('previewLabel').textContent = `預覽 (${W}×${H}) - ${n} 張投影片`;
+  // Draw image with rounded rect clip
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(x, y, cellW, cellH, rad);
+  ctx.clip();
+  ctx.drawImage(img, x, y, cellW, cellH);
+  ctx.restore();
+
+  // Number badge
+  if (num) {
+    const s = Math.max(20, cellH * 0.12);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    ctx.beginPath();
+    ctx.roundRect(x + 4, y + 4, s, s, 4);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${s * 0.65}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(index + 1, x + 4 + s/2, y + 4 + s/2);
+  }
 }
 
 // Download
