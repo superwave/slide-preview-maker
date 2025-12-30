@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>簡報縮圖拼貼產生器</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh; color: #fff; padding: 20px;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 30px; }
+    header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+    header h1 span { background: linear-gradient(90deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    header p { color: #8892b0; font-size: 14px; }
+    .main { display: grid; grid-template-columns: 320px 1fr; gap: 24px; }
+    @media (max-width: 900px) { .main { grid-template-columns: 1fr; } }
+    .panel { background: rgba(255,255,255,0.05); border-radius: 16px; padding: 24px; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+    .section { margin-bottom: 24px; }
+    .section-title { font-size: 12px; font-weight: 600; color: #667eea; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+    .upload-zone { border: 2px dashed rgba(102,126,234,0.5); border-radius: 12px; padding: 32px 20px; text-align: center; cursor: pointer; transition: all 0.3s; }
+    .upload-zone:hover { border-color: #667eea; background: rgba(102,126,234,0.1); }
+    .upload-zone.dragover { border-color: #764ba2; background: rgba(118,75,162,0.2); }
+    .upload-icon { font-size: 40px; margin-bottom: 12px; }
+    .upload-text { font-size: 14px; color: #ccc; margin-bottom: 4px; }
+    .upload-hint { font-size: 12px; color: #666; }
+    .file-input { display: none; }
+    .thumb-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; max-height: 200px; overflow-y: auto; }
+    .thumb-item { position: relative; width: 60px; height: 45px; border-radius: 6px; overflow: hidden; cursor: grab; border: 2px solid transparent; transition: all 0.2s; }
+    .thumb-item:hover { border-color: #667eea; }
+    .thumb-item.dragging { opacity: 0.5; }
+    .thumb-item.dragover { border-color: #764ba2; transform: scale(1.05); }
+    .thumb-item img { width: 100%; height: 100%; object-fit: cover; }
+    .thumb-num { position: absolute; top: 2px; left: 2px; background: rgba(0,0,0,0.7); color: #fff; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+    .thumb-del { position: absolute; top: 2px; right: 2px; background: rgba(220,38,38,0.9); color: #fff; font-size: 10px; width: 16px; height: 16px; border-radius: 50%; display: none; align-items: center; justify-content: center; cursor: pointer; }
+    .thumb-item:hover .thumb-del { display: flex; }
+    .control-row { margin-bottom: 16px; }
+    .control-label { font-size: 13px; color: #aaa; margin-bottom: 6px; display: flex; justify-content: space-between; }
+    .control-value { color: #667eea; font-weight: 600; }
+    input[type="range"] { width: 100%; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); appearance: none; cursor: pointer; }
+    input[type="range"]::-webkit-slider-thumb { appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #667eea; cursor: pointer; }
+    input[type="color"] { width: 40px; height: 32px; border: none; border-radius: 6px; cursor: pointer; background: none; }
+    .color-row { display: flex; align-items: center; gap: 10px; }
+    .color-hex { font-size: 13px; color: #888; font-family: monospace; }
+    .checkbox-row { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #ccc; cursor: pointer; }
+    .checkbox-row input { width: 18px; height: 18px; accent-color: #667eea; }
+    select { width: 100%; padding: 10px 12px; border-radius: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 14px; cursor: pointer; }
+    select option { background: #1a1a2e; }
+    .btn { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-primary { background: linear-gradient(90deg, #667eea, #764ba2); color: #fff; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(102,126,234,0.4); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .preview-area { display: flex; flex-direction: column; align-items: center; }
+    .preview-label { font-size: 13px; color: #888; margin-bottom: 12px; }
+    .canvas-wrap { background: #0a0a0f; border-radius: 12px; padding: 16px; width: 100%; display: flex; justify-content: center; align-items: center; min-height: 400px; }
+    #mainCanvas { max-width: 100%; max-height: 60vh; border-radius: 8px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+    .loading { display: none; flex-direction: column; align-items: center; gap: 16px; }
+    .loading.show { display: flex; }
+    .spinner { width: 48px; height: 48px; border: 4px solid rgba(102,126,234,0.2); border-top-color: #667eea; border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .status { font-size: 14px; color: #888; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📊 <span>簡報縮圖拼貼產生器</span></h1>
+      <p>上傳 PDF 簡報或多張圖片，自動排版成一張總覽示意圖</p>
+    </header>
+    <div class="main">
+      <div class="panel">
+        <div class="section">
+          <div class="section-title">1. 上傳檔案</div>
+          <div class="upload-zone" id="uploadZone">
+            <div class="upload-icon">📁</div>
+            <div class="upload-text">點擊或拖曳檔案至此</div>
+            <div class="upload-hint">支援 PDF、PNG、JPG</div>
+          </div>
+          <input type="file" id="fileInput" class="file-input" multiple accept=".pdf,image/*">
+          <div class="thumb-list" id="thumbList"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">2. 排版設定</div>
+          <div class="control-row">
+            <div class="control-label">輸出尺寸 <span class="control-value" id="sizeLabel">1920×1080</span></div>
+            <select id="sizeSelect">
+              <option value="1920,1080">1920 × 1080 (16:9)</option>
+              <option value="1280,720">1280 × 720 (16:9)</option>
+              <option value="1200,630">1200 × 630 (社群分享)</option>
+              <option value="1080,1080">1080 × 1080 (1:1)</option>
+              <option value="1080,1350">1080 × 1350 (4:5 IG)</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <div class="control-label">背景顏色</div>
+            <div class="color-row">
+              <input type="color" id="bgColor" value="#ffffff">
+              <span class="color-hex" id="bgHex">#ffffff</span>
+            </div>
+          </div>
+          <div class="control-row">
+            <div class="control-label">間距 <span class="control-value" id="gapVal">20px</span></div>
+            <input type="range" id="gapRange" min="0" max="60" value="20">
+          </div>
+          <div class="control-row">
+            <div class="control-label">邊框留白 <span class="control-value" id="padVal">40px</span></div>
+            <input type="range" id="padRange" min="0" max="120" value="40">
+          </div>
+          <div class="control-row">
+            <div class="control-label">圓角 <span class="control-value" id="radiusVal">8px</span></div>
+            <input type="range" id="radiusRange" min="0" max="24" value="8">
+          </div>
+        </div>
+        <div class="section">
+          <div class="section-title">3. 顯示選項</div>
+          <label class="checkbox-row"><input type="checkbox" id="showNum" checked> 顯示編號</label>
+          <label class="checkbox-row" style="margin-top:10px"><input type="checkbox" id="showShadow" checked> 顯示陰影</label>
+        </div>
+        <div class="section">
+          <div class="section-title">4. 輸出格式</div>
+          <select id="formatSelect">
+            <option value="png">PNG (高品質)</option>
+            <option value="jpeg">JPG (較小檔案)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="downloadBtn" disabled>
+          <span>⬇️</span> 下載圖片
+        </button>
+      </div>
+      <div class="panel preview-area">
+        <div class="preview-label" id="previewLabel">預覽區域</div>
+        <div class="canvas-wrap">
+          <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="status" id="loadStatus">處理中...</div>
+          </div>
+          <canvas id="mainCanvas" width="1920" height="1080"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const $ = id => document.getElementById(id);
+const canvas = $('mainCanvas'), ctx = canvas.getContext('2d');
+let images = [], W = 1920, H = 1080;
+
+// Upload handling
+$('uploadZone').onclick = () => $('fileInput').click();
+$('uploadZone').ondragover = e => { e.preventDefault(); e.currentTarget.classList.add('dragover'); };
+$('uploadZone').ondragleave = e => e.currentTarget.classList.remove('dragover');
+$('uploadZone').ondrop = e => { e.preventDefault(); e.currentTarget.classList.remove('dragover'); handleFiles(e.dataTransfer.files); };
+$('fileInput').onchange = e => handleFiles(e.target.files);
+
+async function handleFiles(files) {
+  if (!files.length) return;
+  $('loading').classList.add('show');
+  canvas.style.display = 'none';
+  
+  for (const file of files) {
+    if (file.type === 'application/pdf') {
+      $('loadStatus').textContent = '正在解析 PDF...';
+      const imgs = await loadPDF(file);
+      images.push(...imgs);
+    } else if (file.type.startsWith('image/')) {
+      const img = await loadImage(file);
+      images.push(img);
+    }
+  }
+  
+  $('loading').classList.remove('show');
+  canvas.style.display = 'block';
+  updateThumbs();
+  render();
+  $('downloadBtn').disabled = images.length === 0;
+}
+
+async function loadPDF(file) {
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const imgs = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    $('loadStatus').textContent = `載入第 ${i}/${pdf.numPages} 頁...`;
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({ scale: 2 });
+    const c = document.createElement('canvas');
+    c.width = vp.width; c.height = vp.height;
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    const img = new Image();
+    img.src = c.toDataURL();
+    await new Promise(r => img.onload = r);
+    imgs.push(img);
+  }
+  return imgs;
+}
+
+function loadImage(file) {
+  return new Promise(r => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => r(img);
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Thumbnail list with drag & drop
+function updateThumbs() {
+  const list = $('thumbList');
+  list.innerHTML = '';
+  images.forEach((img, i) => {
+    const div = document.createElement('div');
+    div.className = 'thumb-item';
+    div.draggable = true;
+    div.dataset.idx = i;
+    div.innerHTML = `<img src="${img.src}"><span class="thumb-num">${i+1}</span><span class="thumb-del">✕</span>`;
+    div.querySelector('.thumb-del').onclick = e => { e.stopPropagation(); images.splice(i, 1); updateThumbs(); render(); $('downloadBtn').disabled = !images.length; };
+    div.ondragstart = e => { e.dataTransfer.setData('idx', i); div.classList.add('dragging'); };
+    div.ondragend = () => div.classList.remove('dragging');
+    div.ondragover = e => { e.preventDefault(); div.classList.add('dragover'); };
+    div.ondragleave = () => div.classList.remove('dragover');
+    div.ondrop = e => {
+      e.preventDefault();
+      div.classList.remove('dragover');
+      const from = +e.dataTransfer.getData('idx'), to = +div.dataset.idx;
+      if (from !== to) { const [item] = images.splice(from, 1); images.splice(to, 0, item); updateThumbs(); render(); }
+    };
+    list.appendChild(div);
+  });
+}
+
+// Settings
+$('sizeSelect').onchange = e => { [W, H] = e.target.value.split(',').map(Number); canvas.width = W; canvas.height = H; $('sizeLabel').textContent = `${W}×${H}`; render(); };
+$('bgColor').oninput = e => { $('bgHex').textContent = e.target.value; render(); };
+$('gapRange').oninput = e => { $('gapVal').textContent = e.target.value + 'px'; render(); };
+$('padRange').oninput = e => { $('padVal').textContent = e.target.value + 'px'; render(); };
+$('radiusRange').oninput = e => { $('radiusVal').textContent = e.target.value + 'px'; render(); };
+$('showNum').onchange = render;
+$('showShadow').onchange = render;
+
+// Render
+function render() {
+  ctx.fillStyle = $('bgColor').value;
+  ctx.fillRect(0, 0, W, H);
+  if (!images.length) {
+    ctx.fillStyle = '#999';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('請上傳 PDF 或圖片', W/2, H/2);
+    return;
+  }
+
+  const gap = +$('gapRange').value, pad = +$('padRange').value, rad = +$('radiusRange').value;
+  const shadow = $('showShadow').checked, num = $('showNum').checked;
+  const safeW = W - pad * 2, safeH = H - pad * 2;
+  const ratio = images[0].width / images[0].height;
+  const n = images.length;
+
+  // Find best grid
+  let best = { cols: 1, rows: n, size: 0 };
+  for (let c = 1; c <= n; c++) {
+    const r = Math.ceil(n / c);
+    const cellW = (safeW - (c - 1) * gap) / c;
+    const cellH = (safeH - (r - 1) * gap) / r;
+    const w = Math.min(cellW, cellH * ratio);
+    if (w > best.size) best = { cols: c, rows: r, size: w };
+  }
+
+  const cellW = best.size, cellH = cellW / ratio;
+  const totalW = best.cols * cellW + (best.cols - 1) * gap;
+  const totalH = best.rows * cellH + (best.rows - 1) * gap;
+  const startX = pad + (safeW - totalW) / 2;
+  const startY = pad + (safeH - totalH) / 2;
+
+  images.forEach((img, i) => {
+    const col = i % best.cols, row = Math.floor(i / best.cols);
+    const x = startX + col * (cellW + gap), y = startY + row * (cellH + gap);
+
+    ctx.save();
+    if (shadow) { ctx.shadowColor = 'rgba(0,0,0,0.25)'; ctx.shadowBlur = 12; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 4; }
+    
+    // Rounded rect clip
+    ctx.beginPath();
+    ctx.roundRect(x, y, cellW, cellH, rad);
+    ctx.clip();
+    ctx.drawImage(img, x, y, cellW, cellH);
+    ctx.restore();
+
+    // Number badge
+    if (num) {
+      const s = Math.max(20, cellH * 0.12);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)';
+      ctx.beginPath();
+      ctx.roundRect(x + 4, y + 4, s, s, 4);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${s * 0.65}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(i + 1, x + 4 + s/2, y + 4 + s/2);
+    }
+  });
+  
+  $('previewLabel').textContent = `預覽 (${W}×${H}) - ${n} 張投影片`;
+}
+
+// Download
+$('downloadBtn').onclick = () => {
+  const fmt = $('formatSelect').value;
+  const link = document.createElement('a');
+  link.download = `slides_overview.${fmt}`;
+  link.href = canvas.toDataURL(`image/${fmt}`, fmt === 'jpeg' ? 0.92 : undefined);
+  link.click();
+};
+
+render();
+</script>
+</body>
+</html>
